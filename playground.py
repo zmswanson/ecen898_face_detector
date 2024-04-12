@@ -198,4 +198,3 @@ def visualize_accumulator(accumulator, img=None):
 
 # %%
 visualize_accumulator(accumulator, query_copy)
-# %%

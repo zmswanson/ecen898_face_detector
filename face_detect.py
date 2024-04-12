@@ -236,7 +236,7 @@ class FaceDetect:
 
         return self.accumulator_peaks
     
-    def visualize_r_table(self):
+    def visualize_r_table(self, write_to_file=False):
         """
         Visualize the R-table constructed from the reference images. The R-table is a dictionary
         where the keys are the quantized gradient directions and the values are the displacements
@@ -254,38 +254,70 @@ class FaceDetect:
 
                 rt_img[row, col] = 255
 
-        plt.imshow(rt_img, cmap='gray')
-        plt.title("R-Table")
-        plt.axis('off')
-        plt.show()
+        if write_to_file:
+            cv2.imwrite('images/results/r_table.png', rt_img)
+        else:
+            plt.imshow(rt_img, cmap='gray')
+            plt.axis('off')
+            plt.tight_layout()
+            plt.show()
+
+    def visualize_accumulator(self, write_to_file=False):
+        """
+        Visualize the accumulator array generated from the test image. The accumulator array is a
+        2D array where each cell represents the number of votes for a particular displacement of
+        the reference point.
+        """
+        if self.accumulator is None:
+            raise ValueError("No accumulator array provided")
+        
+        if write_to_file:
+            # add a hot colormap to the accumulator array using OpenCV
+            accumulator_img = cv2.applyColorMap(
+                cv2.convertScaleAbs(self.accumulator, alpha=255/self.accumulator.max()), cv2.COLORMAP_HOT
+            )
+            cv2.imwrite('images/results/accumulator_array.png', accumulator_img)
+        else:
+            plt.imshow(self.accumulator, cmap='hot')
+            plt.title("Accumulator Array")
+            plt.axis('off')
+            plt.tight_layout()
+            plt.show()
 
 
-    def display_results(self):
+    def display_results(self, write_to_file=False):
         """
         Display the results of the face detection algorithm. The results include the accumulator
         array, the peaks in the accumulator array, and the ground truth if available.
         """
         if self.accumulator is None:
             raise ValueError("No accumulator array provided")
-
-        plt.figure(figsize=(12, 6))
-
-        plt.subplot(1, 2, 1)
-        plt.imshow(self.accumulator, cmap='hot', norm=plt.Normalize())
-        plt.title("Accumulator Array")
-        plt.axis('off')
-
-        plt.subplot(1, 2, 2)
-        plt.imshow(self.query_image, cmap='gray')
-        plt.title("Query Image")
-        plt.axis('off')
+        
+        boxed_img = np.copy(self.query_image)
+        if len(boxed_img.shape) == 2:
+            boxed_img = cv2.cvtColor(boxed_img, cv2.COLOR_GRAY2RGB)
 
         if self.accumulator_peaks:
-            for peak in self.accumulator_peaks:
-                plt.plot(peak[2], peak[1], 'ro')
+            # draw a green bounding box (360,280 and scaled by 'scale' ) around the detected face 
+            # of the first peak
+            peak = self.accumulator_peaks[0]
+            row_top = int(peak[1] - 180 * self.scale)
+            row_bottom = int(peak[1] + 180 * self.scale)
+            col_left = int(peak[2] - 140 * self.scale)
+            col_right  = int(peak[2] + 140 * self.scale)
+            
+            cv2.rectangle(boxed_img, (col_left, row_top), (col_right, row_bottom), (0, 255, 0), 2)
 
-        # if self.ground_truth:
-        #     plt.plot(self.ground_truth[0], self.ground_truth[1], 'go')
+            # draw a blue dot at the center of the detected face
+            cv2.circle(boxed_img, (peak[2], peak[1]), 10, (255, 0, 0), -1)
+
+        if write_to_file:
+            cv2.imwrite('images/results/detected_face.png', boxed_img)
+
+        else:
+            plt.imshow(boxed_img)
+            plt.title("Query Image")
+            plt.axis('off')
 
         plt.show()
 
@@ -326,27 +358,29 @@ if __name__ == "__main__":
     ]
 
     # load the query image
-    query_image = cv2.imread('images/reference/ref_img003.png', cv2.IMREAD_GRAYSCALE)
+    query_image = cv2.imread('images/test/test_img001.png', cv2.IMREAD_GRAYSCALE)
 
     # initialize the face detection object
     face_detect = FaceDetect(
         num_bins=32, thresh_low=100, thresh_high=200,
         ref_images=ref_images, query_image=query_image,
-        query_ground_truth=(50, 50), scale=.5, rotation_angle=5
+        query_ground_truth=(50, 50), scale=0.7, rotation_angle=-0.5
     )
 
     # construct the R-table
     face_detect.construct_r_table()
 
-    # face_detect.visualize_r_table()
+    face_detect.visualize_r_table(True)
 
     # generate the accumulator array
     face_detect.generate_accumulator()
+
+    face_detect.visualize_accumulator(True)
 
     # find the peaks in the accumulator array
     face_detect.find_peaks()
 
     # display the results
-    face_detect.display_results()
+    face_detect.display_results(True)
 
     print(f"RMSE: {face_detect.calculate_rmse((185, 290))}")
