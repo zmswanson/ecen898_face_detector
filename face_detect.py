@@ -6,17 +6,21 @@ import matplotlib.pyplot as plt
 
 class FaceDetect:
     def __init__(
-            self, num_bins=8, thresh_low=100, thresh_high=200, rotation_angle=0, scale=1.0,
+            self, num_bins=8, thresh_low=100, thresh_high=200, peak_thresh=None,
+            rotation_angle=0, scale=1.0, reference_noise=0.0, accumulator_noise=0.0,
             reference_point: tuple[int, int]=None, ref_images: List[np.ndarray]=None,
             query_image: np.ndarray=None, query_ground_truth: tuple[int, int]=None,
-            disable_pbar=False):
+            output_prefix="fd_result", output_dir="images/results", disable_pbar=False):
         self.num_bins = num_bins
         self.thresh_low = thresh_low
         self.thresh_high = thresh_high
+        self.peak_thresh = peak_thresh
         self.reference_point = None
         self.rotation_degrees = rotation_angle
         self.rotation_radians = np.deg2rad(rotation_angle)
         self.scale = scale
+        self.reference_noise = reference_noise
+        self.accumulator_noise = accumulator_noise
         
         self.ref_images = []
         if ref_images:
@@ -38,6 +42,9 @@ class FaceDetect:
         self.ground_truth = query_ground_truth
         self.accumulator = None
         self.accumulator_peaks = None
+        self.output_prefix = output_prefix
+        self.output_dir = output_dir
+
         self.disable_pbar = disable_pbar
 
     def calculate_gradient_direction(self, img, is_quantized=True, num_bins=None):
@@ -214,17 +221,16 @@ class FaceDetect:
             self.accumulator = np.copy(accumulator)
         elif self.accumulator is None:
             raise ValueError("No accumulator array provided")
+        
+        if threshold is None:
+            if self.peak_thresh is None:
+                threshold = 0.99 * np.max(self.accumulator)
+            else:
+                threshold = self.peak_thresh
+        else:
+            self.peak_thresh = threshold
 
         self.accumulator_peaks = []
-
-        # if threshold is None:
-        #     # 50% of the total number of votes possible in the r-table
-        #     total_votes = sum(len(lst) for lst in self.r_table.values())
-        #     threshold = sum(len(lst) for lst in self.r_table.values()) * 0.01
-        #     print(f"Possible votes: {total_votes}, Threshold: {threshold}")
-
-        if threshold is None:
-            threshold = 0.99 * np.max(self.accumulator)
 
         for i in range(self.accumulator.shape[0]):
             for j in range(self.accumulator.shape[1]):
@@ -255,9 +261,14 @@ class FaceDetect:
                 rt_img[row, col] = 255
 
         if write_to_file:
-            cv2.imwrite('images/results/r_table.png', rt_img)
+            filename = self.output_prefix + \
+                f"_Rtable_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
+                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+            wr_path = self.output_dir + filename
+            cv2.imwrite(wr_path, rt_img)
         else:
             plt.imshow(rt_img, cmap='gray')
+            plt.title("R-Table")
             plt.axis('off')
             plt.tight_layout()
             plt.show()
@@ -276,10 +287,46 @@ class FaceDetect:
             accumulator_img = cv2.applyColorMap(
                 cv2.convertScaleAbs(self.accumulator, alpha=255/self.accumulator.max()), cv2.COLORMAP_HOT
             )
-            cv2.imwrite('images/results/accumulator_array.png', accumulator_img)
+            filename = self.output_prefix + \
+                f"_accumulator_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
+                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+            wr_path = self.output_dir + filename
+            cv2.imwrite(wr_path, accumulator_img)
         else:
             plt.imshow(self.accumulator, cmap='hot')
             plt.title("Accumulator Array")
+            plt.axis('off')
+            plt.tight_layout()
+            plt.show()
+
+    def visualize_peaks(self, write_to_file=False):
+        """
+        Visualize the peaks in the accumulator array. The peaks are the points in the accumulator
+        array that have the maximum number of votes.
+        """        
+        peaks_img = np.copy(self.query_image)
+        if len(peaks_img.shape) == 2:
+            peaks_img = cv2.cvtColor(peaks_img, cv2.COLOR_GRAY2RGB)
+
+        
+        if self.accumulator_peaks is None or len(self.accumulator_peaks) == 0:
+            # display a message if no peaks are detected
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(peaks_img, f"No Peaks Detected @ {self.peak_thresh} Threshold",
+                        (10, 50), font, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        else:
+            for peak in self.accumulator_peaks:
+                cv2.circle(peaks_img, (peak[2], peak[1]), 5, (0, 0, 255), -1)
+
+        if write_to_file:
+            filename = self.output_prefix + \
+                f"_peaks_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
+                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+            wr_path = self.output_dir + filename
+            cv2.imwrite(wr_path, peaks_img)
+        else:
+            plt.imshow(peaks_img)
+            plt.title("Accumulator Peaks")
             plt.axis('off')
             plt.tight_layout()
             plt.show()
@@ -310,9 +357,18 @@ class FaceDetect:
 
             # draw a blue dot at the center of the detected face
             cv2.circle(boxed_img, (peak[2], peak[1]), 10, (255, 0, 0), -1)
+        else:
+            # display a message if no peaks are detected
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(boxed_img, f"No Peaks Detected @ {self.peak_thresh} Threshold",
+                        (10, 50), font, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
         if write_to_file:
-            cv2.imwrite('images/results/detected_face.png', boxed_img)
+            filename = self.output_prefix + \
+                f"_face_result_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
+                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+            wr_path = self.output_dir + filename
+            cv2.imwrite(wr_path, boxed_img)
 
         else:
             plt.imshow(boxed_img)
