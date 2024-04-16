@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 class FaceDetect:
     def __init__(
-            self, num_bins=8, thresh_low=100, thresh_high=200, peak_thresh=None,
+            self, num_bins=32, thresh_low=100, thresh_high=200, peak_thresh=None,
             rotation_angle=0, scale=1.0, reference_noise=0.0, accumulator_noise=0.0,
             reference_point: tuple[int, int]=None, ref_images: List[np.ndarray]=None,
             query_image: np.ndarray=None, query_ground_truth: tuple[int, int]=None,
@@ -24,7 +24,18 @@ class FaceDetect:
         
         self.ref_images = []
         if ref_images:
-            self.ref_images = [np.copy(img) for img in ref_images]
+            for img in ref_images:
+                tmp = np.copy(img).astype(np.float32) + reference_noise * np.random.randn(*img.shape)
+                # normalize the image to have pixel values between 0 and 255
+                # and convert the image to uint8 for the Canny edge detection
+                tmp = cv2.normalize(tmp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                self.ref_images.append(tmp)
+
+        # if ref_images:
+        #     self.ref_images = [
+        #         np.copy(img).astype(np.float32) + accumulator_noise * np.random.randn(*img.shape)
+        #         for img in ref_images
+        #     ]
 
         if reference_point:
             self.reference_point = reference_point
@@ -38,7 +49,9 @@ class FaceDetect:
                 self.reference_point = (0, 0)
 
         self.r_table = {}
-        self.query_image = query_image
+        tmp = np.copy(query_image).astype(np.float32) + \
+            accumulator_noise * np.random.randn(*query_image.shape)
+        self.query_image = cv2.normalize(tmp, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         self.ground_truth = query_ground_truth
         self.accumulator = None
         self.accumulator_peaks = None
@@ -46,6 +59,12 @@ class FaceDetect:
         self.output_dir = output_dir
 
         self.disable_pbar = disable_pbar
+        
+        # aliases to match the function names requested in the assignment
+        self.buildRtable = self.construct_r_table
+        self.genAccumulator = self.generate_accumulator
+        self.getPeaks = self.find_peaks
+        self.displayResult = self.display_results
 
     def calculate_gradient_direction(self, img, is_quantized=True, num_bins=None):
         """
@@ -263,7 +282,8 @@ class FaceDetect:
         if write_to_file:
             filename = self.output_prefix + \
                 f"_Rtable_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
-                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+                f"_r{self.rotation_degrees}_s{self.scale}" + \
+                f"_rN{self.reference_noise}_aN{self.accumulator_noise}.png"
             wr_path = self.output_dir + filename
             cv2.imwrite(wr_path, rt_img)
         else:
@@ -289,7 +309,8 @@ class FaceDetect:
             )
             filename = self.output_prefix + \
                 f"_accumulator_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
-                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+                f"_r{self.rotation_degrees}_s{self.scale}" + \
+                f"_rN{self.reference_noise}_aN{self.accumulator_noise}.png"
             wr_path = self.output_dir + filename
             cv2.imwrite(wr_path, accumulator_img)
         else:
@@ -321,7 +342,8 @@ class FaceDetect:
         if write_to_file:
             filename = self.output_prefix + \
                 f"_peaks_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
-                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+                f"_r{self.rotation_degrees}_s{self.scale}" + \
+                f"_rN{self.reference_noise}_aN{self.accumulator_noise}.png"
             wr_path = self.output_dir + filename
             cv2.imwrite(wr_path, peaks_img)
         else:
@@ -329,6 +351,32 @@ class FaceDetect:
             plt.title("Accumulator Peaks")
             plt.axis('off')
             plt.tight_layout()
+            plt.show()
+
+    def visualize_votes_histogram(self, write_to_file=False):
+        """
+        Visualize the histogram of votes in the accumulator array. The histogram shows the number of
+        points with a binned number of votes.
+        """
+        if self.accumulator is None:
+            raise ValueError("No accumulator array provided")
+        
+        votes = self.accumulator.flatten()
+        plt.hist(votes, bins=100, color='b', alpha=0.7)
+        plt.title("Votes Histogram")
+        plt.xlabel("Number of Votes")
+        plt.ylabel("Number of Points")
+        plt.yscale('log')
+        plt.axhline(y=1, color='r', linestyle='-')
+        plt.tight_layout()
+        if write_to_file:
+            filename = self.output_prefix + \
+                f"_votes_hist_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
+                f"_r{self.rotation_degrees}_s{self.scale}" + \
+                f"_rN{self.reference_noise}_aN{self.accumulator_noise}.png"
+            wr_path = self.output_dir + filename
+            plt.savefig(wr_path)
+        else:
             plt.show()
 
 
@@ -366,7 +414,8 @@ class FaceDetect:
         if write_to_file:
             filename = self.output_prefix + \
                 f"_face_result_n{self.num_bins}_l{self.thresh_low}_h{self.thresh_high}" + \
-                f"_r{self.rotation_degrees}_s{self.scale}_rN_aN.png"
+                f"_r{self.rotation_degrees}_s{self.scale}" + \
+                f"_rN{self.reference_noise}_aN{self.accumulator_noise}.png"
             wr_path = self.output_dir + filename
             cv2.imwrite(wr_path, boxed_img)
 
@@ -423,20 +472,25 @@ if __name__ == "__main__":
         query_ground_truth=(50, 50), scale=0.7, rotation_angle=-0.5
     )
 
+    face_detect.buildRtable()
+    face_detect.genAccumulator()
+    face_detect.getPeaks()
+    face_detect.displayResult()
+
     # construct the R-table
-    face_detect.construct_r_table()
+    # face_detect.construct_r_table()
 
-    face_detect.visualize_r_table(True)
+    # face_detect.visualize_r_table(True)
 
-    # generate the accumulator array
-    face_detect.generate_accumulator()
+    # # generate the accumulator array
+    # face_detect.generate_accumulator()
 
-    face_detect.visualize_accumulator(True)
+    # face_detect.visualize_accumulator(True)
 
-    # find the peaks in the accumulator array
-    face_detect.find_peaks()
+    # # find the peaks in the accumulator array
+    # face_detect.find_peaks()
 
-    # display the results
-    face_detect.display_results(True)
+    # # display the results
+    # face_detect.display_results(True)
 
-    print(f"RMSE: {face_detect.calculate_rmse((185, 290))}")
+    # print(f"RMSE: {face_detect.calculate_rmse((185, 290))}")

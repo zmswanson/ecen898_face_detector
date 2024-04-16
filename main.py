@@ -8,10 +8,13 @@ def main():
         description='Face detection using generalized Hough transform. Takes a specified ' \
             'directory of reference images and builds an R-table from all references. The ' \
             'R-table is then used to detect faces in test image specified.')
-    parser.add_argument('-d', '--directory', type=str, default='images/reference/',
+    parser.add_argument('-rd', '--ref_dir', type=str, default='images/reference/',
                         help='Directory containing reference images (default: images/reference/)')
-    parser.add_argument('-t', '--test', type=str, default='images/test/test_img001.png',
-                        help='Path to test image to detect faces in (default: ' \
+    parser.add_argument('-t', '--test_image', type=int, default=None, choices=[1, 2, 3],
+                        help='Select one of the three test images (default: 1), overrides the -i ' \
+                            'option')
+    parser.add_argument('-i', '--input', type=str, default='images/test/test_img001.png',
+                        help='Path to non-standard test images for face detection (default: ' \
                             'images/test/test_img001.png)')
     parser.add_argument('-n', '--num_bins', type=int, default=32,
                         help='Number of bins to quantize gradient direction (default: 32)')
@@ -36,8 +39,9 @@ def main():
                         help='Disable progress bar')
     parser.add_argument('-v', '--visualize', type=str, default='rapd',
                         help='Visualize the following: r-table (r), accumulator (a), peaks (p), ' \
-                            'detection (d), or any combination of the four. Use any combination ' \
-                            'of these letters to visualize one or multiple (default: rapd)')
+                            'votes histogram (h), detection (d), or any combination of the four. '\
+                            'Use any combination of these letters to visualize one or multiple ' \
+                            '(default: rapd)')
     parser.add_argument('-o', '--output', type=str, default='images/results/',
                         help='Path to save the visualization images (default: images/results/)')
     parser.add_argument('-w', '--pop_up', action='store_true', help='Pop up the visualization '\
@@ -48,12 +52,20 @@ def main():
     ref_images = []
     test_image = None
 
-    ref_dir = args.directory
+    ref_dir = args.ref_dir
 
     if not os.path.exists(ref_dir):
         raise FileNotFoundError(f"Reference image directory '{ref_dir}' not found")
 
-    test_img_path = args.test
+    test_img_path = 'images/test/test_img001.png'
+    if args.test_image == 1:
+        test_img_path = 'images/test/test_img001.png'
+    elif args.test_image == 2:
+        test_img_path = 'images/test/test_img002.png'
+    elif args.test_image == 3:
+        test_img_path = 'images/test/test_img003.png'
+    elif args.input:
+        test_img_path = args.input
 
     if not os.path.exists(test_img_path):
         raise FileNotFoundError(f"Test image '{test_img_path}' not found")
@@ -107,6 +119,9 @@ def main():
     
     if 'a' in visualize:
         fd.visualize_accumulator(write_to_file=not pop_up)
+
+    if 'h' in visualize:
+        fd.visualize_votThees_histogram(write_to_file=not pop_up)
     
     if 'p' in visualize:
         fd.visualize_peaks(write_to_file=not pop_up)
